@@ -117,24 +117,8 @@ summary:hover{background:color-mix(in srgb,var(--track) 45%,transparent)}
   .pl .st{grid-column:2;grid-row:2;font-size:12px}
 }
 
-.needs{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line)}
-.lineinfo{padding:12px 14px;border-bottom:1px solid var(--line);font-size:15px}
-.lineinfo b.num{font:700 22px var(--display);color:var(--turf)}
-.need{display:grid;grid-template-columns:minmax(0,230px) minmax(0,1fr) 120px;gap:8px 20px;padding:12px 14px;border-bottom:1px solid var(--line);align-items:start}
-.need:last-child{border-bottom:0}
-.need .ask{font:700 30px/1 var(--display);color:var(--danger)}
-.need .ask.ok{color:var(--safe)}
-.need .ask small{font:600 12px var(--body);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-left:4px}
-.need ul{list-style:none;margin:0;padding:0;display:grid;gap:3px;font-size:14px}
-.need li{display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline}
-.need li .when{color:var(--muted);font-size:12.5px}
-.need li .when.in{color:var(--danger);font-weight:600}
-.need .story{font-size:14px;margin-top:6px}
-.need .odds{text-align:right}
-.need .odds .num{font:700 26px/1 var(--display)}
-.need.muted-row{font-size:14px;color:var(--muted);display:block}
-@media (max-width:760px){.need{grid-template-columns:1fr auto}.need .mid{grid-column:1/-1;grid-row:2}}
-
+.scen{font-size:14px;padding:8px 10px;margin-bottom:6px;background:var(--ground);border-left:3px solid var(--turf)}
+.scen.hot-s{border-left-color:var(--danger)}
 .games{display:flex;flex-wrap:wrap;gap:8px}
 .game{background:var(--surface);border:1px solid var(--line);padding:6px 10px;font-size:13px;min-width:112px}
 .game.in{border-color:var(--danger)}
@@ -172,10 +156,6 @@ section{display:flex;flex-direction:column;gap:10px}
   </header>
   <div id="banner" class="banner" hidden></div>
   <div id="hot"></div>
-  <section id="needsSec">
-    <h2>What needs to happen</h2>
-    <div id="needs" class="needs"></div>
-  </section>
   <section>
     <h2>Odds of finishing last</h2>
     <div class="board" id="board"></div>
@@ -368,46 +348,25 @@ const avatar = t => t.avatar ? `<img class="av" src="${esc(t.avatar)}" alt="" lo
 const shortName = p => p.pos === 'DEF' ? `${p.team} D/ST` : p.name.replace(/^(\S)\S*\s+/, '$1. ');
 const pending = t => t.players.filter(p => p.state === 'in' || p.state === 'pre');
 const joinNames = a => a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`;
-function playerLine(p){
-  const game = p.g ? `${p.g.away.abbr} @ ${p.g.home.abbr}` : '';
-  const when = p.state === 'in' ? `<span class="when in">${esc(game)} · ${esc(p.label)}</span>` : `<span class="when">${esc(game)} · ${esc(p.label)}</span>`;
-  const pts = p.state === 'in' ? `${fmt(p.pts, 1)} so far, +${fmt(p.rem, 1)} proj to come` : `proj ${fmt(p.proj, 1)}`;
-  return `<li><span><strong>${esc(p.name)}</strong> <span class="muted">${esc([p.pos, p.team].filter(Boolean).join(' · '))}</span></span>${when}<span class="muted">${pts}</span></li>`;
-}
-function renderNeeds(teams, final){
-  $('needsSec').hidden = final;
-  if (final) return;
+function scenario(t, teams, final){
+  if (final) return '';
   const pctOf = x => x >= 0.995 ? '>99%' : x < 0.005 ? '<1%' : `${Math.round(x * 100)}%`;
-  const done = teams.filter(t => t.done).sort((a, b) => a.points - b.points);
-  const line = done[0];
-  let html = '';
-  if (!line){
-    html += `<div class="lineinfo">Nobody has finished yet, so there's no score to beat. Here are the most exposed teams and who they still have going.</div>`;
-    html += teams.slice(0, 6).map(t => `<div class="need"><div><div class="tn">${esc(t.team)}</div><div class="sub">@${esc(t.manager)} · ${fmt(t.points)} now</div><div class="ask">${fmt(t.p50, 1)}<small>median finish</small></div></div><div class="mid"><ul>${pending(t).map(playerLine).join('')}</ul></div><div class="odds"><div class="num">${pctText(t, false)}</div><div class="label">to finish last</div></div></div>`).join('');
-    $('needs').innerHTML = html; return;
-  }
-  const chasers = teams.filter(t => !t.done && t.points <= line.points).sort((a, b) => a.points - b.points);
-  const above = teams.filter(t => !t.done && t.points > line.points);
-  html += `<div class="lineinfo">The line is <b class="num">${fmt(line.points)}</b> — ${esc(line.team)} (@${esc(line.manager)}), the lowest score that's already final. Finish above it and you're safe no matter what.</div>`;
-  for (const t of chasers){
-    const need = line.points - t.points + 0.01, ps = pending(t), projLeft = ps.reduce((s, p) => s + p.rem, 0);
-    let clear = 0; for (const v of t.totals) if (v > line.points) clear++;
-    clear /= t.totals.length;
-    const others = chasers.filter(o => o !== t);
-    html += `<div class="need"><div><div class="tn">${esc(t.team)}</div><div class="sub">@${esc(t.manager)} · ${fmt(t.points)} now</div><div class="ask">+${fmt(need)}<small>needed</small></div></div>
-      <div class="mid"><ul>${ps.map(playerLine).join('')}</ul><div class="story">Needs ${fmt(need)} more from ${esc(joinNames(ps.map(shortName)))} to pass ${esc(line.team)}; they're projected for +${fmt(projLeft, 1)}. ${others.length ? `Falls short? Still escapes by outscoring ${esc(joinNames(others.map(o => o.team)))} if they fall short too.` : `Falls short and the punishment is theirs.`}</div></div>
-      <div class="odds"><div class="num">${pctOf(clear)}</div><div class="label">to clear the line</div><div class="sub" style="justify-content:flex-end;margin-top:4px">${pctText(t, false)} to finish last</div></div></div>`;
-  }
-  html += `<div class="need"><div><div class="tn">${esc(line.team)}</div><div class="sub">@${esc(line.manager)} · final</div><div class="ask ok">${fmt(line.points)}<small>done</small></div></div>
-    <div class="mid"><div class="story" style="margin-top:0">${chasers.length ? `Nothing left to play. Escapes if <strong>any one</strong> of ${esc(joinNames(chasers.map(c => `${c.team} (needs +${fmt(line.points - c.points + 0.01)})`)))} falls short of ${fmt(line.points)}. Takes the punishment only if ${chasers.length > 1 ? 'all of them clear' : 'they clear'} it.` : `Nobody left below the line. This score is last unless a team above loses points on a late negative play.`}</div></div>
-    <div class="odds"><div class="num">${pctText(line, false)}</div><div class="label">to finish last</div></div></div>`;
-  if (above.length) html += `<div class="need muted-row">Already over the line with players still to go (safe barring negative points): ${above.map(t => `${esc(t.team)} ${fmt(t.points)} — ${esc(joinNames(pending(t).map(shortName)))}`).join('; ')}.</div>`;
-  $('needs').innerHTML = html;
+  const line = teams.filter(o => o.done).sort((a, b) => a.points - b.points)[0];
+  const ps = pending(t), who = esc(joinNames(ps.map(shortName)));
+  if (!line) return `<div class="scen">No team has finished yet, so there's no score to beat. Median finish ${fmt(t.p50, 1)} with ${who} still to go.</div>`;
+  const L = fmt(line.points), chasers = teams.filter(o => !o.done && o.points <= line.points);
+  if (t === line) return `<div class="scen hot-s">${chasers.length ? `Done at ${L}, the lowest final score. Escapes if <strong>any one</strong> of ${esc(joinNames(chasers.map(c => `${c.team} (needs +${fmt(line.points - c.points + 0.01)})`)))} falls short of ${L}. Takes the punishment only if ${chasers.length > 1 ? 'all of them clear' : 'they clear'} it.` : `Done at ${L} with nobody left below. This is last unless a team above loses points.`}</div>`;
+  if (t.done) return `<div class="scen">Final, and above the lowest finished score (${esc(line.team)}, ${L}). Safe.</div>`;
+  if (t.points > line.points) return `<div class="scen">Already above the lowest finished score (${esc(line.team)}, ${L}) with ${who} still to go. Safe barring negative points.</div>`;
+  const need = line.points - t.points + 0.01, projLeft = ps.reduce((a, p) => a + p.rem, 0);
+  let clear = 0; for (const v of t.totals) if (v > line.points) clear++;
+  const others = chasers.filter(o => o !== t);
+  return `<div class="scen hot-s">Needs <strong>+${fmt(need)}</strong> from ${who} to pass ${esc(line.team)} (${L}) and be safe. They're projected for +${fmt(projLeft, 1)}: ${pctOf(clear / t.totals.length)} to get there. ${others.length ? `If not, still escapes by outscoring ${esc(joinNames(others.map(o => o.team)))} if they fall short too.` : `If not, the punishment is theirs.`}</div>`;
 }
 function statusBits(t){
   const b = [];
-  if (t.live) b.push(`<span class="chip-live">${t.live} playing: ${esc(t.players.filter(p => p.state === 'in').map(shortName).join(', '))}</span>`);
-  if (t.left) b.push(`<span class="chip-left">${t.left} yet to play: ${esc(t.players.filter(p => p.state === 'pre').map(shortName).join(', '))}</span>`);
+  if (t.live) b.push(`<span class="chip-live">${t.live} playing</span>`);
+  if (t.left) b.push(`<span class="chip-left">${t.left} yet to play</span>`);
   if (!t.live && !t.left) b.push('<span>Done</span>');
   return b.join('');
 }
@@ -435,8 +394,6 @@ function render(teams, final){
       ${(final ? [...teams].sort((a, b) => a.points - b.points).slice(1, 4) : teams.slice(1, 4)).map(t => `<div class="chaser"><span style="min-width:0;overflow-wrap:anywhere">${esc(t.team)} <span class="muted">· ${final ? `+${fmt(t.points - top.points)}` : `${fmt(t.points)} now`}</span></span><span class="num">${final ? fmt(t.points) : pctText(t, false)}</span></div>`).join('')}
     </div></div>`;
 
-  renderNeeds(teams, final);
-
   const lo = Math.floor(Math.min(...teams.map(t => Math.min(t.points, t.p10))) / 10) * 10;
   const hi = Math.max(lo + 10, Math.ceil(Math.max(...teams.map(t => Math.max(t.points, t.p90))) / 10) * 10);
   const x = v => `${((v - lo) / (hi - lo) * 100).toFixed(2)}%`;
@@ -452,7 +409,7 @@ function render(teams, final){
       <div class="proj">${t.done ? '—' : fmt(t.p50, 1)}</div>
       <div class="strip"><div class="base"></div>${t.done ? '' : `<div class="rng" style="left:${x(t.p10)};width:calc(${x(t.p90)} - ${x(t.p10)})"></div><div class="med" style="left:${x(t.p50)}"></div>`}<div class="cur" style="left:${x(t.points)}"></div></div>
       <div class="prob ${cls}"><div class="bar"><i style="width:${Math.max(p, p > 0 ? 1.5 : 0)}%"></i></div><div class="pct">${pctText(t, final)}</div></div>
-    </div></summary><div class="lineup">${lineup}</div></details>`;
+    </div></summary><div class="lineup">${scenario(t, teams, final)}${lineup}</div></details>`;
   }).join('');
   $('board').innerHTML = `<div class="head"><span></span><span class="label">Team</span><span class="label r">Now</span><span class="label r">Median</span><div class="axis">${ticks.map(v => `<span style="left:${x(v)}">${v}</span>`).join('')}</div><span class="label r">Odds of last</span></div>${rows}`;
   $('board').querySelectorAll('details').forEach(d => d.addEventListener('toggle', () => { const id = +d.dataset.rid; d.open ? S.open.add(id) : S.open.delete(id); }));
