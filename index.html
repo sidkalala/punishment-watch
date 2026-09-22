@@ -147,6 +147,8 @@ summary:hover{background:color-mix(in srgb,var(--track) 45%,transparent)}
 .pbtn.can:hover{border-color:var(--danger)}
 .pbtn.struck{text-decoration:line-through;color:var(--muted);background:var(--ground);border-style:dashed}
 .pbtn.won{background:var(--danger-soft);border-color:var(--danger);font-weight:700}
+.pbtn.blocked{color:var(--muted);background:var(--ground);opacity:.75}
+.pbtn .until{display:block;font-size:11.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--caution);margin-top:2px}
 .spinrow{display:flex;flex-wrap:wrap;gap:8px}
 button.primary{background:var(--danger);border-color:var(--danger);color:#fff;font:700 20px var(--display);letter-spacing:.08em;text-transform:uppercase;padding:10px 34px}
 button.primary:disabled{opacity:.5;cursor:default}
@@ -269,7 +271,7 @@ section{display:flex;flex-direction:column;gap:10px}
       </div>
     </div>
     <div class="note">
-      <p>Anyone can look. The week's loser unlocks with the password, strikes up to two punishments, then spins. Every remaining punishment has an equal chance; the winner is drawn with the browser's cryptographic random generator before the wheel starts moving, and the animation just lands on it.</p>
+      <p>Anyone can look. The week's loser unlocks with the password, strikes up to two punishments, then spins. A punishment that gets picked sits out the next two weeks. Every remaining punishment has an equal chance; the winner is drawn with the browser's cryptographic random generator before the wheel starts moving, and the animation just lands on it.</p>
     </div>
   </div>
 </div>
@@ -526,7 +528,7 @@ async function loadLog(currentFinal){
     S.log = {key, rows};
   }
   const rows = S.log.rows;
-  $('log').innerHTML = rows.length ? `<table><thead><tr><th>Week</th><th>Lowest score</th><th class="r">Pts</th><th class="r">Lost by</th></tr></thead><tbody>${[...rows].reverse().map(r => `<tr><td>${r.w}</td><td>${esc(S.rosters[r.rid]?.team)} <span class="muted">@${esc(S.rosters[r.rid]?.manager)}</span></td><td class="r">${fmt(r.pts)}</td><td class="r">${fmt(r.margin)}</td></tr>`).join('')}</tbody></table>` : '<div style="padding:12px" class="muted">No completed weeks yet.</div>';
+  $('log').innerHTML = rows.length ? `<table><thead><tr><th>Week</th><th>Lowest score</th><th class="r">Pts</th><th class="r">Lost by</th><th>Punishment</th></tr></thead><tbody>${[...rows].reverse().map(r => { const pr = resultFor(r.w); return `<tr><td>${r.w}</td><td>${esc(S.rosters[r.rid]?.team)} <span class="muted">@${esc(S.rosters[r.rid]?.manager)}</span></td><td class="r">${fmt(r.pts)}</td><td class="r">${fmt(r.margin)}</td><td>${pr >= 0 ? esc(PUNISHMENTS[pr]) : '<span class="muted">Not spun yet</span>'}</td></tr>`; }).join('')}</tbody></table>` : '<div style="padding:12px" class="muted">No completed weeks yet.</div>';
   const tally = {};
   rows.forEach(r => tally[r.rid] = (tally[r.rid] || 0) + 1);
   const ts = Object.entries(tally).sort((a, b) => b[1] - a[1]);
@@ -571,7 +573,9 @@ async function refresh(){
 const PUNISHMENTS = ['Weather Pledge', 'Wax Strip', 'Anatomy White Coat', 'Attend M1 SAS', 'Hot chip/pepper in class', 'Beer Shotgun', 'No devices HS', 'Egg Smash', 'Dollys Corner', 'Lake Jump', 'Morning Lecture Medium Pizza'];
 const PW_HASH = '717533b0c25975cbf4c0aca4b67069565beb1da051fcad5b324fc326d87eec34';
 const MASTER_HASH = 'bb87c3488d773f514cdb6de415b3d732cc83fb77bd58dafdab3eda6c04c74723';
-const MAX_STRIKES = 2, SPIN_S = 5.5;
+const MAX_STRIKES = 2, SPIN_S = 5.5, COOLDOWN = 2;
+// Official results, by week. Update this when a week's punishment is decided.
+const HISTORY = {1: 'Attend M1 SAS'};
 const W = {unlocked: false, removed: new Set(), rot: 0, spinning: false, week: null, saved: null};
 const store = {
   get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
@@ -580,7 +584,19 @@ const store = {
 };
 try { W.unlocked = sessionStorage.getItem('pw_unlocked') === '1'; } catch {}
 const spinKey = () => `pw_spin_${LEAGUE}_${W.week}`;
-const activeIdx = () => { const rem = W.saved ? new Set(W.saved.removed) : W.removed; return PUNISHMENTS.map((_, i) => i).filter(i => !rem.has(i)); };
+function resultFor(w){
+  if (HISTORY[w] != null) return PUNISHMENTS.indexOf(HISTORY[w]);
+  const sp = store.get(`pw_spin_${LEAGUE}_${w}`);
+  return sp ? sp.result : -1;
+}
+// punishment index -> first week it's available again
+function blockedFor(week){
+  const m = new Map();
+  if (week == null) return m;
+  for (let w = Math.max(1, week - COOLDOWN); w < week; w++){ const r = resultFor(w); if (r >= 0) m.set(r, w + COOLDOWN + 1); }
+  return m;
+}
+const activeIdx = () => { const rem = W.saved ? new Set(W.saved.removed) : W.removed, bl = blockedFor(W.week); return PUNISHMENTS.map((_, i) => i).filter(i => !rem.has(i) && !bl.has(i)); };
 function secureInt(n){ const b = new Uint32Array(1), lim = Math.floor(0x100000000 / n) * n; do crypto.getRandomValues(b); while (b[0] >= lim); return b[0] % n; }
 const secureFloat = () => secureInt(1e6) / 1e6;
 async function sha256(t){ const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)); return [...new Uint8Array(d)].map(x => x.toString(16).padStart(2, '0')).join(''); }
@@ -626,14 +642,17 @@ function setRot(deg, secs){
 function renderWheel(){
   drawWheel();
   const saved = W.saved, canEdit = W.unlocked && !saved && !W.spinning && W.week != null;
+  const bl = blockedFor(W.week);
   $('plist').innerHTML = PUNISHMENTS.map((p, i) => {
+    const until = bl.get(i);
+    if (until) return `<button type="button" class="pbtn blocked" data-i="${i}" disabled>${esc(p)}<span class="until">Unavailable until Week ${until}</span></button>`;
     const struck = saved ? saved.removed.includes(i) : W.removed.has(i), won = saved && saved.result === i;
     const can = canEdit && (struck || W.removed.size < MAX_STRIKES);
     return `<button type="button" class="pbtn${struck ? ' struck' : ''}${won ? ' won' : ''}${can ? ' can' : ''}" data-i="${i}" aria-pressed="${struck}"${can ? '' : ' disabled'}>${esc(p)}</button>`;
   }).join('');
   $('strikeHint').textContent = saved ? `Struck: ${saved.removed.length ? saved.removed.map(i => PUNISHMENTS[i]).join(', ') : 'none'}`
     : canEdit ? `Tap to strike up to ${MAX_STRIKES} · ${W.removed.size} of ${MAX_STRIKES} struck · ${activeIdx().length} on the wheel`
-    : `${PUNISHMENTS.length} on the wheel`;
+    : `${activeIdx().length} on the wheel${bl.size ? ` · ${bl.size} sitting out` : ''}`;
   $('lockForm').hidden = W.unlocked || !!saved;
   $('spinBtn').hidden = !W.unlocked || !!saved;
   $('spinBtn').disabled = W.spinning || W.week == null;
@@ -641,11 +660,17 @@ function renderWheel(){
   $('lockBtn').hidden = !W.unlocked || W.spinning;
   const res = $('result'); res.hidden = !saved;
   if (saved) res.innerHTML = `<div class="label">Week ${saved.week} punishment</div><div class="big">${esc(PUNISHMENTS[saved.result])}</div>
-    <div class="muted" style="font-size:13.5px">Spun ${esc(new Date(saved.at).toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}))} on this device, from ${PUNISHMENTS.length - saved.removed.length} options.</div>`;
+    <div class="muted" style="font-size:13.5px">${saved.official ? `Official result. Sits out until Week ${saved.week + COOLDOWN + 1}.` : `Sits out until Week ${saved.week + COOLDOWN + 1}. `}${saved.official ? '' : `Spun ${esc(new Date(saved.at).toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}))} on this device, from ${activeIdx().length} options.`}</div>`;
 }
 function loadWeekSpin(week){
   W.week = week; W.removed.clear();
   W.saved = week == null ? null : store.get(spinKey());
+  if (week != null && HISTORY[week] != null){
+    const r = PUNISHMENTS.indexOf(HISTORY[week]);
+    W.saved = {week, removed: [], result: r, official: true, at: null, rot: 0};
+    const idx = activeIdx(), k = idx.indexOf(r);
+    W.saved.rot = k < 0 ? 0 : ((360 - (k + 0.5) * 360 / idx.length) % 360 + 360) % 360;
+  }
   W.rot = W.saved ? W.saved.rot : 0; setRot(W.rot, 0);
   renderWheel();
 }
