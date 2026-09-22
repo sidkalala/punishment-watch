@@ -257,6 +257,7 @@ section{display:flex;flex-direction:column;gap:10px}
           <button id="spinBtn" class="primary" type="button" hidden>Spin</button>
           <button id="lockBtn" type="button" hidden>Lock</button>
         </div>
+        <div id="spinErr" class="err" hidden></div>
         <details class="admin" id="adminBox">
           <summary>Commissioner reset</summary>
           <form id="adminForm" class="lock" autocomplete="off">
@@ -271,7 +272,7 @@ section{display:flex;flex-direction:column;gap:10px}
       </div>
     </div>
     <div class="note">
-      <p>Anyone can look. The week's loser unlocks with the password, strikes up to two punishments, then spins. A punishment that gets picked sits out the next two weeks. Every remaining punishment has an equal chance; the winner is drawn with the browser's cryptographic random generator before the wheel starts moving, and the animation just lands on it.</p>
+      <p>Anyone can look. The week's loser unlocks with the password, strikes up to two punishments, then spins. A punishment that gets picked sits out the next two weeks. Every remaining punishment has an equal chance; the winner is drawn with the browser's cryptographic random generator and saved before the wheel starts moving, and the animation just lands on it. Spins go to a shared database, so everyone sees the same result (anyone watching this tab sees it spin live), and the loser gets exactly one spin per week. Only the commissioner can reset a spin.</p>
     </div>
   </div>
 </div>
@@ -516,6 +517,7 @@ function render(teams, final){
 }
 
 async function loadLog(currentFinal){
+  S.logFinal = currentFinal;
   const start = S.league.settings.start_week || 1, end = currentFinal ? S.currentWeek : S.currentWeek - 1;
   const key = `${start}-${end}`;
   if (!S.log || S.log.key !== key){
@@ -571,23 +573,51 @@ async function refresh(){
 
 /* ---------- punishment wheel ---------- */
 const PUNISHMENTS = ['Weather Pledge', 'Wax Strip', 'Anatomy White Coat', 'Attend M1 SAS', 'Hot chip/pepper in class', 'Beer Shotgun', 'No devices HS', 'Egg Smash', 'Dollys Corner', 'Lake Jump', 'Morning Lecture Medium Pizza'];
+// Shared spin database. Its security rules are what actually enforce the passwords,
+// one spin per week, and master-only resets; the hashes below only give instant feedback.
+const FS_PROJECT = 'punishment-watch';
+const FS = `https://firestore.googleapis.com/v1/projects/${FS_PROJECT}/databases/(default)/documents`;
 const PW_HASH = '717533b0c25975cbf4c0aca4b67069565beb1da051fcad5b324fc326d87eec34';
 const MASTER_HASH = 'bb87c3488d773f514cdb6de415b3d732cc83fb77bd58dafdab3eda6c04c74723';
 const MAX_STRIKES = 2, SPIN_S = 5.5, COOLDOWN = 2;
-// Official results, by week. Update this when a week's punishment is decided.
+// Results decided before the shared database existed.
 const HISTORY = {1: 'Attend M1 SAS'};
-const W = {unlocked: false, removed: new Set(), rot: 0, spinning: false, week: null, saved: null};
-const store = {
-  get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
-  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
-  del: k => { try { localStorage.removeItem(k); } catch {} }
-};
-try { W.unlocked = sessionStorage.getItem('pw_unlocked') === '1'; } catch {}
-const spinKey = () => `pw_spin_${LEAGUE}_${W.week}`;
+const W = {pw: null, removed: new Set(), rot: 0, spinning: false, week: null, saved: null, spins: {}, loaded: false};
+
+async function loadSpins(){
+  const r = await fetch(`${FS}/spins?pageSize=300`, {cache: 'no-store'});
+  if (!r.ok) throw new Error(`${r.status} from the spin database`);
+  const j = await r.json(), out = {};
+  for (const d of j.documents || []){
+    const f = d.fields || {}, w = +d.name.split('/').pop();
+    if (!f.result || !('integerValue' in f.result)) continue; // never spun, or reset
+    out[w] = {week: w, result: +f.result.integerValue, removed: (f.removed?.arrayValue?.values || []).map(v => +v.integerValue), at: +(f.at?.integerValue || 0)};
+  }
+  W.spins = out; W.loaded = true;
+}
+async function writeSpin(week, pw, result, removed){
+  const nonce = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
+  const doc = p => `projects/${FS_PROJECT}/databases/(default)/documents/${p}`;
+  const body = {writes: [
+    {update: {name: doc(`gate/${week}`), fields: {pw: {stringValue: pw}, nonce: {stringValue: nonce}}}},
+    {update: {name: doc(`spins/${week}`), fields: {
+      week: {integerValue: String(week)},
+      result: result == null ? {nullValue: null} : {integerValue: String(result)},
+      removed: {arrayValue: {values: removed.map(i => ({integerValue: String(i)}))}},
+      at: {integerValue: String(Date.now())},
+      nonce: {stringValue: nonce}}}}
+  ]};
+  const r = await fetch(`${FS}:commit`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  if (!r.ok){ const e = new Error(`HTTP ${r.status}`); e.status = r.status; throw e; }
+}
 function resultFor(w){
   if (HISTORY[w] != null) return PUNISHMENTS.indexOf(HISTORY[w]);
-  const sp = store.get(`pw_spin_${LEAGUE}_${w}`);
-  return sp ? sp.result : -1;
+  return W.spins[w] ? W.spins[w].result : -1;
+}
+function savedFor(w){
+  if (w == null) return null;
+  if (HISTORY[w] != null) return {week: w, removed: [], result: PUNISHMENTS.indexOf(HISTORY[w]), official: true, at: 0};
+  return W.spins[w] ? {...W.spins[w]} : null;
 }
 // punishment index -> first week it's available again
 function blockedFor(week){
@@ -597,6 +627,11 @@ function blockedFor(week){
   return m;
 }
 const activeIdx = () => { const rem = W.saved ? new Set(W.saved.removed) : W.removed, bl = blockedFor(W.week); return PUNISHMENTS.map((_, i) => i).filter(i => !rem.has(i) && !bl.has(i)); };
+// wheel angle that puts the pointer on the saved result (jitter 0.5 = slice center)
+function angleFor(result, jitter = 0.5){
+  const idx = activeIdx(), k = idx.indexOf(result);
+  return k < 0 ? 0 : ((360 - (k + jitter) * 360 / idx.length) % 360 + 360) % 360;
+}
 function secureInt(n){ const b = new Uint32Array(1), lim = Math.floor(0x100000000 / n) * n; do crypto.getRandomValues(b); while (b[0] >= lim); return b[0] % n; }
 const secureFloat = () => secureInt(1e6) / 1e6;
 async function sha256(t){ const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)); return [...new Uint8Array(d)].map(x => x.toString(16).padStart(2, '0')).join(''); }
@@ -611,7 +646,7 @@ function drawWheel(){
   const cv = $('wheel'), ctx = cv.getContext('2d'), size = cv.width, c = size / 2, r = c - 4;
   const cs = getComputedStyle(document.documentElement), col = n => cs.getPropertyValue(n).trim();
   const fills = [col('--w1'), col('--w2'), col('--w3')], ink = col('--w-ink'), edge = col('--surface');
-  const idx = activeIdx(), n = idx.length, a = 2 * Math.PI / n, win = W.saved ? W.saved.result : -1;
+  const idx = activeIdx(), n = idx.length, a = 2 * Math.PI / n, win = W.saved && !W.spinning ? W.saved.result : -1;
   ctx.clearRect(0, 0, size, size);
   idx.forEach((pi, k) => {
     let ci = k % 3; if (k === n - 1 && ci === 0 && n > 1) ci = 1;
@@ -641,38 +676,61 @@ function setRot(deg, secs){
 }
 function renderWheel(){
   drawWheel();
-  const saved = W.saved, canEdit = W.unlocked && !saved && !W.spinning && W.week != null;
+  const saved = W.saved, spinning = W.spinning, done = saved && !spinning;
+  const canEdit = !!W.pw && !saved && !spinning && W.week != null && W.loaded;
   const bl = blockedFor(W.week);
   $('plist').innerHTML = PUNISHMENTS.map((p, i) => {
     const until = bl.get(i);
     if (until) return `<button type="button" class="pbtn blocked" data-i="${i}" disabled>${esc(p)}<span class="until">Unavailable until Week ${until}</span></button>`;
-    const struck = saved ? saved.removed.includes(i) : W.removed.has(i), won = saved && saved.result === i;
+    const struck = saved ? saved.removed.includes(i) : W.removed.has(i), won = done && saved.result === i;
     const can = canEdit && (struck || W.removed.size < MAX_STRIKES);
     return `<button type="button" class="pbtn${struck ? ' struck' : ''}${won ? ' won' : ''}${can ? ' can' : ''}" data-i="${i}" aria-pressed="${struck}"${can ? '' : ' disabled'}>${esc(p)}</button>`;
   }).join('');
   $('strikeHint').textContent = saved ? `Struck: ${saved.removed.length ? saved.removed.map(i => PUNISHMENTS[i]).join(', ') : 'none'}`
     : canEdit ? `Tap to strike up to ${MAX_STRIKES} · ${W.removed.size} of ${MAX_STRIKES} struck · ${activeIdx().length} on the wheel`
     : `${activeIdx().length} on the wheel${bl.size ? ` · ${bl.size} sitting out` : ''}`;
-  $('lockForm').hidden = W.unlocked || !!saved;
-  $('spinBtn').hidden = !W.unlocked || !!saved;
-  $('spinBtn').disabled = W.spinning || W.week == null;
-  $('spinBtn').textContent = W.spinning ? 'Spinning…' : W.removed.size < MAX_STRIKES ? `Spin with ${activeIdx().length}` : 'Spin';
-  $('lockBtn').hidden = !W.unlocked || W.spinning;
-  const res = $('result'); res.hidden = !saved;
-  if (saved) res.innerHTML = `<div class="label">Week ${saved.week} punishment</div><div class="big">${esc(PUNISHMENTS[saved.result])}</div>
-    <div class="muted" style="font-size:13.5px">${saved.official ? `Official result. Sits out until Week ${saved.week + COOLDOWN + 1}.` : `Sits out until Week ${saved.week + COOLDOWN + 1}. `}${saved.official ? '' : `Spun ${esc(new Date(saved.at).toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}))} on this device, from ${activeIdx().length} options.`}</div>`;
+  $('lockForm').hidden = !!W.pw || !!saved;
+  $('spinBtn').hidden = !W.pw || !!done;
+  $('spinBtn').disabled = spinning || W.week == null || !W.loaded;
+  $('spinBtn').textContent = spinning ? 'Spinning…' : W.removed.size < MAX_STRIKES ? `Spin with ${activeIdx().length}` : 'Spin';
+  $('lockBtn').hidden = !W.pw || spinning;
+  const res = $('result'); res.hidden = !done;
+  if (done) res.innerHTML = `<div class="label">Week ${saved.week} punishment</div><div class="big">${esc(PUNISHMENTS[saved.result])}</div>
+    <div class="muted" style="font-size:13.5px">${saved.official ? 'Official result. ' : `Spun ${esc(new Date(saved.at).toLocaleString([], {weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}))} from ${activeIdx().length} options. `}Sits out until Week ${saved.week + COOLDOWN + 1}.</div>`;
+}
+async function animateTo(target, turns){
+  const start = W.rot % 360; setRot(start, 0);
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches, secs = reduce ? 0.8 : SPIN_S;
+  W.spinning = true; renderWheel();
+  void $('wheel').offsetWidth;
+  W.rot = start + 360 * (reduce ? 1 : turns) + ((target - start) % 360 + 360) % 360;
+  setRot(W.rot, secs);
+  await new Promise(res => setTimeout(res, secs * 1000 + 150));
+  W.spinning = false; renderWheel();
+  if (!$('tabWheel').hidden) $('result').scrollIntoView({block: 'nearest', behavior: reduce ? 'auto' : 'smooth'});
 }
 function loadWeekSpin(week){
   W.week = week; W.removed.clear();
-  W.saved = week == null ? null : store.get(spinKey());
-  if (week != null && HISTORY[week] != null){
-    const r = PUNISHMENTS.indexOf(HISTORY[week]);
-    W.saved = {week, removed: [], result: r, official: true, at: null, rot: 0};
-    const idx = activeIdx(), k = idx.indexOf(r);
-    W.saved.rot = k < 0 ? 0 : ((360 - (k + 0.5) * 360 / idx.length) % 360 + 360) % 360;
-  }
-  W.rot = W.saved ? W.saved.rot : 0; setRot(W.rot, 0);
+  W.saved = savedFor(week);
+  W.rot = W.saved ? angleFor(W.saved.result) : 0; setRot(W.rot, 0);
   renderWheel();
+}
+// apply the latest database state; animate when a spin shows up while someone is watching
+function syncWheel(animate){
+  if (W.spinning || W.week == null){ if (!W.spinning) renderWheel(); return; }
+  const next = savedFor(W.week), had = W.saved;
+  if ((!next && !had) || (next && had && next.result === had.result && next.at === had.at)){ renderWheel(); return; }
+  W.saved = next; W.removed.clear();
+  if (!next){ W.rot = 0; setRot(0, 0); renderWheel(); return; }
+  if (animate && !had && !$('tabWheel').hidden && !document.hidden) animateTo(angleFor(next.result, 0.12 + 0.76 * secureFloat()), 7);
+  else { W.rot = angleFor(next.result); setRot(W.rot, 0); renderWheel(); }
+}
+function wheelError(msg){ const e = $('spinErr'); e.hidden = !msg; e.textContent = msg || ''; }
+async function refreshSpins(animate){
+  try { await loadSpins(); if (!W.spinning) wheelError(''); }
+  catch (err){ wheelError(`Couldn't reach the spin database (${err.message}). Results may be out of date; retrying.`); }
+  syncWheel(animate);
+  if (S.log) loadLog(S.logFinal).catch(() => {});
 }
 function renderWheelInfo(){
   const rows = S.log ? S.log.rows : [], last = rows[rows.length - 1];
@@ -690,21 +748,24 @@ function renderWheelInfo(){
   $('spinNote').textContent = `@${r.manager} · ${fmt(last.pts)} pts, last by ${fmt(last.margin)}.${upcoming}`;
 }
 async function spinWheel(){
-  if (!W.unlocked || W.spinning || W.saved || W.week == null) return;
-  const idx = activeIdx(), n = idx.length, k = secureInt(n), deg = 360 / n;
-  const target = ((360 - (k + 0.12 + 0.76 * secureFloat()) * deg) % 360 + 360) % 360;
-  const start = W.rot % 360; setRot(start, 0);
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches, secs = reduce ? 0.8 : SPIN_S;
-  W.spinning = true; renderWheel();
-  void $('wheel').offsetWidth;
-  W.rot = start + 360 * (reduce ? 1 : 7) + ((target - start) % 360 + 360) % 360;
-  setRot(W.rot, secs);
-  await new Promise(res => setTimeout(res, secs * 1000 + 150));
+  if (!W.pw || W.spinning || W.saved || W.week == null || !W.loaded) return;
+  const idx = activeIdx(), k = secureInt(idx.length), removed = [...W.removed], week = W.week;
+  W.spinning = true; wheelError(''); renderWheel();
+  try { await writeSpin(week, W.pw, idx[k], removed); }
+  catch (err){
+    W.spinning = false;
+    await loadSpins().catch(() => {});
+    if (W.spins[week]) wheelError(`Week ${week} was already spun, so this spin didn't count.`);
+    else if (err.status === 403) wheelError('The database refused the spin. Check the password and try again.');
+    else wheelError(`Couldn't save the spin (${err.message}). Nothing was recorded; try again.`);
+    syncWheel(false);
+    return;
+  }
+  W.saved = {week, removed, result: idx[k], at: Date.now()};
+  W.spins[week] = W.saved;
   W.spinning = false;
-  W.saved = {week: W.week, removed: [...W.removed], result: idx[k], rot: W.rot % 360, at: Date.now()};
-  store.set(spinKey(), W.saved);
-  renderWheel();
-  $('result').scrollIntoView({block: 'nearest', behavior: reduce ? 'auto' : 'smooth'});
+  await animateTo(angleFor(idx[k], 0.12 + 0.76 * secureFloat()), 7);
+  refreshSpins(false);
 }
 $('plist').addEventListener('click', e => {
   const b = e.target.closest('.pbtn'); if (!b || b.disabled) return;
@@ -713,28 +774,35 @@ $('plist').addEventListener('click', e => {
 });
 $('lockForm').addEventListener('submit', async e => {
   e.preventDefault();
+  const pw = $('pw').value.trim().toLowerCase();
   let ok = false;
-  try { ok = (await sha256($('pw').value.trim().toLowerCase())) === PW_HASH; } catch {}
+  try { ok = (await sha256(pw)) === PW_HASH; } catch {}
   $('pwErr').hidden = ok;
   if (!ok) return;
-  W.unlocked = true; $('pw').value = '';
-  try { sessionStorage.setItem('pw_unlocked', '1'); } catch {}
+  W.pw = pw; $('pw').value = '';
   renderWheel();
 });
 $('spinBtn').addEventListener('click', spinWheel);
 $('adminForm').addEventListener('submit', async e => {
   e.preventDefault();
-  const msg = $('adminMsg'); msg.hidden = false;
+  const msg = $('adminMsg'), pw = $('mpw').value.trim(); msg.hidden = false; msg.className = 'muted';
   let ok = false;
-  try { ok = (await sha256($('mpw').value.trim())) === MASTER_HASH; } catch {}
+  try { ok = (await sha256(pw)) === MASTER_HASH; } catch {}
   if (!ok){ msg.textContent = 'Wrong master password.'; msg.className = 'err'; return; }
-  $('mpw').value = ''; msg.className = 'muted';
-  if (W.spinning || W.week == null){ msg.textContent = 'Nothing to reset yet.'; return; }
-  const had = !!W.saved;
-  store.del(spinKey()); loadWeekSpin(W.week);
-  msg.textContent = had ? `Week ${W.week} spin cleared on this device. The wheel is back to all ${PUNISHMENTS.length} punishments.` : `No Week ${W.week} spin on this device; strikes cleared.`;
+  const week = W.week;
+  if (W.spinning || week == null){ msg.textContent = 'Nothing to reset yet.'; return; }
+  if (HISTORY[week] != null){ msg.textContent = `Week ${week} is a recorded result from before the database and can't be reset here.`; return; }
+  msg.textContent = 'Resetting…';
+  try { await writeSpin(week, pw, null, []); }
+  catch (err){ msg.textContent = `Reset failed (${err.message}).`; msg.className = 'err'; return; }
+  $('mpw').value = '';
+  await refreshSpins(false);
+  W.removed.clear(); renderWheel();
+  msg.textContent = `Week ${week} spin reset for everyone. The loser can spin again.`;
 });
-$('lockBtn').addEventListener('click', () => { W.unlocked = false; W.removed.clear(); try { sessionStorage.removeItem('pw_unlocked'); } catch {} W.rot = W.saved ? W.saved.rot : 0; setRot(W.rot, 0); renderWheel(); });
+$('lockBtn').addEventListener('click', () => { W.pw = null; W.removed.clear(); W.rot = W.saved ? angleFor(W.saved.result) : 0; setRot(W.rot, 0); renderWheel(); });
+setInterval(() => { if (!document.hidden && !$('tabWheel').hidden && !W.spinning) refreshSpins(true); }, 10e3);
+refreshSpins(false);
 
 function showTab(name){
   const w = name === 'wheel';
