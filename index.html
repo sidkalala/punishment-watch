@@ -392,7 +392,7 @@ function buildTeams(){
       const f = g ? g.f : 0, proj = pr ? Math.max(0, pr.pts) : 0;
       const pos = nm.pos || (pr && pr.pos) || '';
       return {id, slot: slots[i] || '', name: id === '0' || !id ? 'Empty slot' : (nm.name || `Player ${id}`), pos, team: team || '', g, f,
-        pts: (m.starters_points && m.starters_points[i]) || 0, proj, rem: proj * f, state: g ? g.state : 'post', label: g ? g.label : (id && id !== '0' ? 'No game' : '')};
+        pts: (m.players_points && m.players_points[id]) || (m.starters && m.starters_points ? m.starters_points[i] || 0 : 0), proj, rem: proj * f, state: g ? g.state : 'post', label: g ? g.label : (id && id !== '0' ? 'No game' : '')};
     });
     return {rid: m.roster_id, points: m.points || 0, players, noLineup: !(m.starters || []).some(id => id && id !== '0'), live: players.filter(p => p.state === 'in').length, left: players.filter(p => p.state === 'pre').length, ...S.rosters[m.roster_id]};
   });
@@ -539,6 +539,13 @@ async function refresh(){
   let live = false;
   try {
     const [m] = await Promise.all([getJSON(`${API}/v1/league/${LEAGUE}/matchups/${S.week}`), loadGames(), loadProjections()]);
+    // Sleeper leaves a week's matchup lineup empty until the manager changes something;
+    // the app shows the carried-over lineup, which lives on the roster.
+    if (S.week === S.currentWeek && m.some(t => !(t.starters || []).some(id => id && id !== '0'))){
+      const rs = await getJSON(`${API}/v1/league/${LEAGUE}/rosters`);
+      const byId = Object.fromEntries(rs.map(r => [r.roster_id, r]));
+      for (const t of m) if (!(t.starters || []).some(id => id && id !== '0') && byId[t.roster_id]?.starters) t.starters = byId[t.roster_id].starters;
+    }
     S.matchups = m;
     await ensureNames();
     const teams = buildTeams();
