@@ -11,6 +11,7 @@
   --ground:#F1F4F0; --surface:#FFFFFF; --ink:#15201B; --muted:#5E6D65; --line:#D9E0DA;
   --turf:#1F6B4A; --danger:#CC3526; --danger-soft:#F9E3DF; --caution:#B87F00; --safe:#2F7D57;
   --track:#E4EAE5; --range:#9DB5A8;
+  --w1:#D5E6DA; --w2:#F2D6CF; --w3:#EEE2BF; --w-ink:#15201B;
   --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
   --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
 }
@@ -18,13 +19,13 @@
   :root:not([data-theme="light"]){
     --ground:#0E1512; --surface:#161F1A; --ink:#E7EDE8; --muted:#8FA096; --line:#26332C;
     --turf:#5CC08F; --danger:#F0604F; --danger-soft:#3A1C18; --caution:#E5B13A; --safe:#5CC08F;
-    --track:#1F2A24; --range:#4C6558;
+    --track:#1F2A24; --range:#4C6558; --w1:#1E3A2C; --w2:#4A2620; --w3:#453A1B; --w-ink:#E7EDE8;
   }
 }
 :root[data-theme="dark"]{
   --ground:#0E1512; --surface:#161F1A; --ink:#E7EDE8; --muted:#8FA096; --line:#26332C;
   --turf:#5CC08F; --danger:#F0604F; --danger-soft:#3A1C18; --caution:#E5B13A; --safe:#5CC08F;
-  --track:#1F2A24; --range:#4C6558;
+  --track:#1F2A24; --range:#4C6558; --w1:#1E3A2C; --w2:#4A2620; --w3:#453A1B; --w-ink:#E7EDE8;
 }
 *{box-sizing:border-box}
 html{color-scheme:light dark}
@@ -119,6 +120,43 @@ summary:hover{background:color-mix(in srgb,var(--track) 45%,transparent)}
 
 .scen{font-size:14px;padding:8px 10px;margin-bottom:6px;background:var(--ground);border-left:3px solid var(--turf)}
 .scen.hot-s{border-left-color:var(--danger)}
+[hidden]{display:none!important}
+.pane{display:flex;flex-direction:column;gap:24px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-top:-8px}
+.tabs button{background:none;border:0;border-bottom:3px solid transparent;border-radius:0;padding:8px 14px;font:600 17px var(--display);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:-1px}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--danger)}
+.tabs button:hover{color:var(--ink)}
+
+.wheelgrid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:28px;align-items:start}
+@media (max-width:760px){.wheelgrid{grid-template-columns:1fr}}
+.wheelbox{position:relative;width:100%;max-width:460px;margin-inline:auto;padding-top:14px}
+.wheelbox canvas{display:block;width:100%;height:auto;max-width:100%;aspect-ratio:1;border-radius:50%;box-shadow:0 0 0 6px var(--surface),0 0 0 7px var(--line)}
+.pointer{position:absolute;top:0;left:50%;transform:translateX(-50%);width:0;height:0;border-left:16px solid transparent;border-right:16px solid transparent;border-top:30px solid var(--danger);z-index:2;filter:drop-shadow(0 2px 2px rgba(0,0,0,.25))}
+.wheelside{display:flex;flex-direction:column;gap:18px;min-width:0}
+.spinwho{font:700 30px/1.05 var(--display);text-transform:uppercase;margin-block:4px;overflow-wrap:anywhere}
+.lock{display:flex;flex-direction:column;gap:6px}
+.lockrow{display:flex;gap:8px}
+.lockrow input{flex:1;min-width:0;font:500 15px var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:7px 10px}
+.lockrow input:focus-visible{outline:2px solid var(--turf);outline-offset:1px}
+.err{color:var(--danger);font-size:13.5px;font-weight:600}
+.plistwrap{display:flex;flex-direction:column;gap:8px}
+.plist{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+@media (max-width:420px){.plist{grid-template-columns:1fr}}
+.pbtn{text-align:left;font:500 14px var(--body);padding:8px 10px;border-radius:6px;background:var(--surface);border:1px solid var(--line);color:var(--ink)}
+.pbtn:disabled{cursor:default;opacity:1}
+.pbtn.can:hover{border-color:var(--danger)}
+.pbtn.struck{text-decoration:line-through;color:var(--muted);background:var(--ground);border-style:dashed}
+.pbtn.won{background:var(--danger-soft);border-color:var(--danger);font-weight:700}
+.spinrow{display:flex;flex-wrap:wrap;gap:8px}
+button.primary{background:var(--danger);border-color:var(--danger);color:#fff;font:700 20px var(--display);letter-spacing:.08em;text-transform:uppercase;padding:10px 34px}
+button.primary:disabled{opacity:.5;cursor:default}
+button:focus-visible,.pbtn:focus-visible{outline:2px solid var(--turf);outline-offset:2px}
+.admin summary{font-size:13px;color:var(--muted);cursor:pointer;width:max-content}
+.admin summary:hover{color:var(--ink)}
+.admin[open] summary{margin-bottom:8px}
+.result{background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--danger);padding:14px 16px}
+.result .big{font:700 40px/1 var(--display);color:var(--danger);text-transform:uppercase;margin-block:6px;overflow-wrap:anywhere}
+
 .games{display:flex;flex-wrap:wrap;gap:8px}
 .game{background:var(--surface);border:1px solid var(--line);padding:6px 10px;font-size:13px;min-width:112px}
 .game.in{border-color:var(--danger)}
@@ -148,13 +186,20 @@ section{display:flex;flex-direction:column;gap:10px}
     </div>
     <div class="controls">
       <span class="pill" id="status">Loading</span>
-      <label class="label" for="weekSel">Week</label>
-      <select id="weekSel"></select>
-      <button id="refreshBtn" type="button">Refresh</button>
-      <span class="muted" id="updated" style="font-size:13px"></span>
+      <span id="weekCtl" class="controls">
+        <label class="label" for="weekSel">Week</label>
+        <select id="weekSel"></select>
+        <button id="refreshBtn" type="button">Refresh</button>
+        <span class="muted" id="updated" style="font-size:13px"></span>
+      </span>
     </div>
   </header>
+  <nav class="tabs" role="tablist" aria-label="Views">
+    <button type="button" role="tab" id="tabBtnOdds" aria-selected="true" aria-controls="tabOdds">Odds</button>
+    <button type="button" role="tab" id="tabBtnWheel" aria-selected="false" aria-controls="tabWheel">Punishment wheel</button>
+  </nav>
   <div id="banner" class="banner" hidden></div>
+  <div id="tabOdds" class="pane" role="tabpanel" aria-labelledby="tabBtnOdds">
   <div id="hot"></div>
   <section>
     <h2>Odds of finishing last</h2>
@@ -178,6 +223,54 @@ section{display:flex;flex-direction:column;gap:10px}
   <div class="note">
     <p><strong>What's exact:</strong> every score on this page is the official league score read straight from Sleeper, refreshed every 20 seconds while games are live. Game clocks come from ESPN's scoreboard.</p>
     <p><strong>What's an estimate:</strong> the odds. Each unfinished starter's remaining points are simulated 20,000 times around their Sleeper projection (rescored with this league's scoring settings and scaled by game time left), with boom/bust spread by position and players in the same NFL game rising and falling together. Once a team is mathematically or practically out of reach it shows &lt;0.1%. Lineup swaps before kickoff change the odds on the next refresh.</p>
+  </div>
+  </div>
+
+  <div id="tabWheel" class="pane" role="tabpanel" aria-labelledby="tabBtnWheel" hidden>
+    <div class="wheelgrid">
+      <div class="wheelbox">
+        <div class="pointer" aria-hidden="true"></div>
+        <canvas id="wheel" width="720" height="720" role="img" aria-label="Punishment wheel"></canvas>
+      </div>
+      <div class="wheelside">
+        <div>
+          <div class="label" id="spinFor">Loading…</div>
+          <div class="spinwho" id="spinWho"></div>
+          <div class="muted" id="spinNote" style="font-size:14px"></div>
+        </div>
+        <div id="result" class="result" hidden></div>
+        <form id="lockForm" class="lock" autocomplete="off">
+          <label for="pw" class="label">Password to strike and spin</label>
+          <div class="lockrow">
+            <input id="pw" type="password" autocomplete="off" spellcheck="false">
+            <button type="submit">Unlock</button>
+          </div>
+          <div id="pwErr" class="err" hidden>Wrong password. Try again.</div>
+        </form>
+        <div class="plistwrap">
+          <div class="label" id="strikeHint">On the wheel</div>
+          <div id="plist" class="plist"></div>
+        </div>
+        <div class="spinrow">
+          <button id="spinBtn" class="primary" type="button" hidden>Spin</button>
+          <button id="lockBtn" type="button" hidden>Lock</button>
+        </div>
+        <details class="admin" id="adminBox">
+          <summary>Commissioner reset</summary>
+          <form id="adminForm" class="lock" autocomplete="off">
+            <label for="mpw" class="label">Master password</label>
+            <div class="lockrow">
+              <input id="mpw" type="password" autocomplete="off" spellcheck="false">
+              <button type="submit">Reset this week</button>
+            </div>
+            <div id="adminMsg" class="muted" style="font-size:13.5px" hidden></div>
+          </form>
+        </details>
+      </div>
+    </div>
+    <div class="note">
+      <p>Anyone can look. The week's loser unlocks with the password, strikes up to two punishments, then spins. Every remaining punishment has an equal chance; the winner is drawn with the browser's cryptographic random generator before the wheel starts moving, and the animation just lands on it.</p>
+    </div>
   </div>
 </div>
 
@@ -301,7 +394,7 @@ function buildTeams(){
       return {id, slot: slots[i] || '', name: id === '0' || !id ? 'Empty slot' : (nm.name || `Player ${id}`), pos, team: team || '', g, f,
         pts: (m.starters_points && m.starters_points[i]) || 0, proj, rem: proj * f, state: g ? g.state : 'post', label: g ? g.label : (id && id !== '0' ? 'No game' : '')};
     });
-    return {rid: m.roster_id, points: m.points || 0, players, live: players.filter(p => p.state === 'in').length, left: players.filter(p => p.state === 'pre').length, ...S.rosters[m.roster_id]};
+    return {rid: m.roster_id, points: m.points || 0, players, noLineup: !(m.starters || []).some(id => id && id !== '0'), live: players.filter(p => p.state === 'in').length, left: players.filter(p => p.state === 'pre').length, ...S.rosters[m.roster_id]};
   });
 }
 function simulate(teams){
@@ -350,6 +443,7 @@ const pending = t => t.players.filter(p => p.state === 'in' || p.state === 'pre'
 const joinNames = a => a.length < 2 ? a.join('') : `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`;
 function scenario(t, teams, final){
   if (final) return '';
+  if (t.noLineup) return `<div class="scen hot-s">No starters set for Week ${S.week}. Scores 0 unless a lineup goes in before kickoff, which is why the odds are so high.</div>`;
   const pctOf = x => x >= 0.995 ? '>99%' : x < 0.005 ? '<1%' : `${Math.round(x * 100)}%`;
   const line = teams.filter(o => o.done).sort((a, b) => a.points - b.points)[0];
   const ps = pending(t), who = esc(joinNames(ps.map(shortName)));
@@ -365,6 +459,7 @@ function scenario(t, teams, final){
 }
 function statusBits(t){
   const b = [];
+  if (t.noLineup && S.gameList.some(g => g.state === 'pre')) return '<span class="chip-live">No lineup set</span>';
   if (t.live) b.push(`<span class="chip-live">${t.live} playing</span>`);
   if (t.left) b.push(`<span class="chip-left">${t.left} yet to play</span>`);
   if (!t.live && !t.left) b.push('<span>Done</span>');
@@ -436,6 +531,7 @@ async function loadLog(currentFinal){
   rows.forEach(r => tally[r.rid] = (tally[r.rid] || 0) + 1);
   const ts = Object.entries(tally).sort((a, b) => b[1] - a[1]);
   $('tally').innerHTML = ts.length ? `<table><thead><tr><th>Team</th><th class="r">Punishments</th></tr></thead><tbody>${ts.map(([rid, c]) => `<tr><td>${esc(S.rosters[rid]?.team)}</td><td class="r">${c}</td></tr>`).join('')}</tbody></table>` : '<div style="padding:12px" class="muted">Clean slate so far.</div>';
+  renderWheelInfo();
 }
 
 async function refresh(){
@@ -449,6 +545,7 @@ async function refresh(){
     const noneLeft = simulate(teams);
     const final = noneLeft && S.gameList.length > 0 && S.gameList.every(g => g.state === 'post');
     render(teams, final);
+    if (S.week === S.currentWeek){ S.leader = teams[0]; S.curFinal = final; renderWheelInfo(); }
     live = S.gameList.some(g => g.state === 'in');
     const currentFinal = S.week === S.currentWeek ? final : (S.log ? S.log.key.endsWith(`-${S.currentWeek}`) : false);
     loadLog(currentFinal).catch(() => {});
@@ -462,6 +559,167 @@ async function refresh(){
   const soon = S.gameList.some(g => g.state === 'pre' && g.when - Date.now() < 15 * 60e3);
   S.timer = setTimeout(refresh, live || soon ? 20e3 : 120e3);
 }
+
+/* ---------- punishment wheel ---------- */
+const PUNISHMENTS = ['Weather Pledge', 'Wax Strip', 'Anatomy White Coat', 'Attend M1 SAS', 'Hot chip/pepper in class', 'Beer Shotgun', 'No devices HS', 'Egg Smash', 'Dollys Corner', 'Lake Jump', 'Morning Lecture Medium Pizza'];
+const PW_HASH = '717533b0c25975cbf4c0aca4b67069565beb1da051fcad5b324fc326d87eec34';
+const MASTER_HASH = 'bb87c3488d773f514cdb6de415b3d732cc83fb77bd58dafdab3eda6c04c74723';
+const MAX_STRIKES = 2, SPIN_S = 5.5;
+const W = {unlocked: false, removed: new Set(), rot: 0, spinning: false, week: null, saved: null};
+const store = {
+  get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del: k => { try { localStorage.removeItem(k); } catch {} }
+};
+try { W.unlocked = sessionStorage.getItem('pw_unlocked') === '1'; } catch {}
+const spinKey = () => `pw_spin_${LEAGUE}_${W.week}`;
+const activeIdx = () => { const rem = W.saved ? new Set(W.saved.removed) : W.removed; return PUNISHMENTS.map((_, i) => i).filter(i => !rem.has(i)); };
+function secureInt(n){ const b = new Uint32Array(1), lim = Math.floor(0x100000000 / n) * n; do crypto.getRandomValues(b); while (b[0] >= lim); return b[0] % n; }
+const secureFloat = () => secureInt(1e6) / 1e6;
+async function sha256(t){ const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)); return [...new Uint8Array(d)].map(x => x.toString(16).padStart(2, '0')).join(''); }
+
+function splitLabel(t){
+  const w = t.split(' '); if (w.length < 2) return [t];
+  let best = 1, diff = Infinity;
+  for (let i = 1; i < w.length; i++){ const d = Math.abs(w.slice(0, i).join(' ').length - w.slice(i).join(' ').length); if (d < diff){ diff = d; best = i; } }
+  return [w.slice(0, best).join(' '), w.slice(best).join(' ')];
+}
+function drawWheel(){
+  const cv = $('wheel'), ctx = cv.getContext('2d'), size = cv.width, c = size / 2, r = c - 4;
+  const cs = getComputedStyle(document.documentElement), col = n => cs.getPropertyValue(n).trim();
+  const fills = [col('--w1'), col('--w2'), col('--w3')], ink = col('--w-ink'), edge = col('--surface');
+  const idx = activeIdx(), n = idx.length, a = 2 * Math.PI / n, win = W.saved ? W.saved.result : -1;
+  ctx.clearRect(0, 0, size, size);
+  idx.forEach((pi, k) => {
+    let ci = k % 3; if (k === n - 1 && ci === 0 && n > 1) ci = 1;
+    const s = -Math.PI / 2 + k * a;
+    ctx.beginPath(); ctx.moveTo(c, c); ctx.arc(c, c, r, s, s + a); ctx.closePath();
+    ctx.fillStyle = pi === win ? col('--danger') : fills[ci]; ctx.fill();
+    ctx.strokeStyle = edge; ctx.lineWidth = 4; ctx.stroke();
+    ctx.save(); ctx.translate(c, c); ctx.rotate(s + a / 2);
+    ctx.fillStyle = pi === win ? '#FFFFFF' : ink; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    const maxW = r - 88; let fs = 30, lines = [PUNISHMENTS[pi]];
+    const fit = () => { ctx.font = `600 ${fs}px Barlow, system-ui, sans-serif`; return Math.max(...lines.map(l => ctx.measureText(l).width)) <= maxW; };
+    while (!fit() && fs > 24) fs--;
+    if (!fit()){ lines = splitLabel(PUNISHMENTS[pi]); fs = 30; while (!fit() && fs > 14) fs--; }
+    const lh = fs * 1.08;
+    lines.forEach((l, j) => ctx.fillText(l, r - 24, (j - (lines.length - 1) / 2) * lh));
+    ctx.restore();
+  });
+  ctx.beginPath(); ctx.arc(c, c, 44, 0, 2 * Math.PI); ctx.fillStyle = edge; ctx.fill();
+  ctx.lineWidth = 3; ctx.strokeStyle = col('--line'); ctx.stroke();
+  ctx.fillStyle = col('--danger'); ctx.font = '700 22px "Barlow Condensed", system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(`${n}`, c, c);
+}
+function setRot(deg, secs){
+  const cv = $('wheel');
+  cv.style.transition = secs ? `transform ${secs}s cubic-bezier(.12,.72,.1,1)` : 'none';
+  cv.style.transform = `rotate(${deg}deg)`;
+}
+function renderWheel(){
+  drawWheel();
+  const saved = W.saved, canEdit = W.unlocked && !saved && !W.spinning && W.week != null;
+  $('plist').innerHTML = PUNISHMENTS.map((p, i) => {
+    const struck = saved ? saved.removed.includes(i) : W.removed.has(i), won = saved && saved.result === i;
+    const can = canEdit && (struck || W.removed.size < MAX_STRIKES);
+    return `<button type="button" class="pbtn${struck ? ' struck' : ''}${won ? ' won' : ''}${can ? ' can' : ''}" data-i="${i}" aria-pressed="${struck}"${can ? '' : ' disabled'}>${esc(p)}</button>`;
+  }).join('');
+  $('strikeHint').textContent = saved ? `Struck: ${saved.removed.length ? saved.removed.map(i => PUNISHMENTS[i]).join(', ') : 'none'}`
+    : canEdit ? `Tap to strike up to ${MAX_STRIKES} · ${W.removed.size} of ${MAX_STRIKES} struck · ${activeIdx().length} on the wheel`
+    : `${PUNISHMENTS.length} on the wheel`;
+  $('lockForm').hidden = W.unlocked || !!saved;
+  $('spinBtn').hidden = !W.unlocked || !!saved;
+  $('spinBtn').disabled = W.spinning || W.week == null;
+  $('spinBtn').textContent = W.spinning ? 'Spinning…' : W.removed.size < MAX_STRIKES ? `Spin with ${activeIdx().length}` : 'Spin';
+  $('lockBtn').hidden = !W.unlocked || W.spinning;
+  const res = $('result'); res.hidden = !saved;
+  if (saved) res.innerHTML = `<div class="label">Week ${saved.week} punishment</div><div class="big">${esc(PUNISHMENTS[saved.result])}</div>
+    <div class="muted" style="font-size:13.5px">Spun ${esc(new Date(saved.at).toLocaleString([], {weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit'}))} on this device, from ${PUNISHMENTS.length - saved.removed.length} options.</div>`;
+}
+function loadWeekSpin(week){
+  W.week = week; W.removed.clear();
+  W.saved = week == null ? null : store.get(spinKey());
+  W.rot = W.saved ? W.saved.rot : 0; setRot(W.rot, 0);
+  renderWheel();
+}
+function renderWheelInfo(){
+  const rows = S.log ? S.log.rows : [], last = rows[rows.length - 1];
+  if ((last ? last.w : null) !== W.week && !W.spinning) loadWeekSpin(last ? last.w : null);
+  const ld = S.leader, upcoming = ld && !S.curFinal ? ` Week ${S.currentWeek} is still being played: ${ld.team} is ${pctText(ld, false)} to spin next${ld.noLineup ? ' (no lineup set yet)' : ''}.` : '';
+  if (!last){
+    $('spinFor').textContent = 'No finished week yet';
+    $('spinWho').textContent = 'Nobody spins yet';
+    $('spinNote').textContent = upcoming.trim();
+    return;
+  }
+  const r = S.rosters[last.rid] || {};
+  $('spinFor').textContent = `Week ${last.w} loser spins`;
+  $('spinWho').textContent = r.team || '';
+  $('spinNote').textContent = `@${r.manager} · ${fmt(last.pts)} pts, last by ${fmt(last.margin)}.${upcoming}`;
+}
+async function spinWheel(){
+  if (!W.unlocked || W.spinning || W.saved || W.week == null) return;
+  const idx = activeIdx(), n = idx.length, k = secureInt(n), deg = 360 / n;
+  const target = ((360 - (k + 0.12 + 0.76 * secureFloat()) * deg) % 360 + 360) % 360;
+  const start = W.rot % 360; setRot(start, 0);
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches, secs = reduce ? 0.8 : SPIN_S;
+  W.spinning = true; renderWheel();
+  void $('wheel').offsetWidth;
+  W.rot = start + 360 * (reduce ? 1 : 7) + ((target - start) % 360 + 360) % 360;
+  setRot(W.rot, secs);
+  await new Promise(res => setTimeout(res, secs * 1000 + 150));
+  W.spinning = false;
+  W.saved = {week: W.week, removed: [...W.removed], result: idx[k], rot: W.rot % 360, at: Date.now()};
+  store.set(spinKey(), W.saved);
+  renderWheel();
+  $('result').scrollIntoView({block: 'nearest', behavior: reduce ? 'auto' : 'smooth'});
+}
+$('plist').addEventListener('click', e => {
+  const b = e.target.closest('.pbtn'); if (!b || b.disabled) return;
+  const i = +b.dataset.i; W.removed.has(i) ? W.removed.delete(i) : W.removed.add(i);
+  W.rot = 0; setRot(0, 0); renderWheel();
+});
+$('lockForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  let ok = false;
+  try { ok = (await sha256($('pw').value.trim().toLowerCase())) === PW_HASH; } catch {}
+  $('pwErr').hidden = ok;
+  if (!ok) return;
+  W.unlocked = true; $('pw').value = '';
+  try { sessionStorage.setItem('pw_unlocked', '1'); } catch {}
+  renderWheel();
+});
+$('spinBtn').addEventListener('click', spinWheel);
+$('adminForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const msg = $('adminMsg'); msg.hidden = false;
+  let ok = false;
+  try { ok = (await sha256($('mpw').value.trim())) === MASTER_HASH; } catch {}
+  if (!ok){ msg.textContent = 'Wrong master password.'; msg.className = 'err'; return; }
+  $('mpw').value = ''; msg.className = 'muted';
+  if (W.spinning || W.week == null){ msg.textContent = 'Nothing to reset yet.'; return; }
+  const had = !!W.saved;
+  store.del(spinKey()); loadWeekSpin(W.week);
+  msg.textContent = had ? `Week ${W.week} spin cleared on this device. The wheel is back to all ${PUNISHMENTS.length} punishments.` : `No Week ${W.week} spin on this device; strikes cleared.`;
+});
+$('lockBtn').addEventListener('click', () => { W.unlocked = false; W.removed.clear(); try { sessionStorage.removeItem('pw_unlocked'); } catch {} W.rot = W.saved ? W.saved.rot : 0; setRot(W.rot, 0); renderWheel(); });
+
+function showTab(name){
+  const w = name === 'wheel';
+  $('tabOdds').hidden = w; $('tabWheel').hidden = !w;
+  $('tabBtnOdds').setAttribute('aria-selected', String(!w)); $('tabBtnWheel').setAttribute('aria-selected', String(w));
+  $('weekCtl').hidden = w;
+  if (w) drawWheel();
+  const want = w ? '#wheel' : '';
+  if (location.hash !== want) history.replaceState(null, '', location.pathname + location.search + want);
+}
+$('tabBtnOdds').addEventListener('click', () => showTab('odds'));
+$('tabBtnWheel').addEventListener('click', () => showTab('wheel'));
+window.addEventListener('hashchange', () => showTab(location.hash === '#wheel' ? 'wheel' : 'odds'));
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', drawWheel);
+if (document.fonts) document.fonts.ready.then(drawWheel);
+renderWheel();
+showTab(location.hash === '#wheel' ? 'wheel' : 'odds');
 
 $('weekSel').addEventListener('change', e => { S.week = +e.target.value; S.open.clear(); refresh(); });
 $('refreshBtn').addEventListener('click', refresh);
