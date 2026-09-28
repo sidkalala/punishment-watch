@@ -153,6 +153,8 @@ summary:hover{background:color-mix(in srgb,var(--track) 45%,transparent)}
 button.primary{background:var(--danger);border-color:var(--danger);color:#fff;font:700 20px var(--display);letter-spacing:.08em;text-transform:uppercase;padding:10px 34px}
 button.primary:disabled{opacity:.5;cursor:default}
 button:focus-visible,.pbtn:focus-visible{outline:2px solid var(--turf);outline-offset:2px}
+.lastres{margin-top:10px;font-size:13.5px;color:var(--muted);border-left:3px solid var(--line);padding-left:10px}
+.lastres b{color:var(--ink);font-weight:600}
 .admin summary{font-size:13px;color:var(--muted);cursor:pointer;width:max-content}
 .admin summary:hover{color:var(--ink)}
 .admin[open] summary{margin-bottom:8px}
@@ -239,6 +241,7 @@ section{display:flex;flex-direction:column;gap:10px}
           <div class="label" id="spinFor">Loading…</div>
           <div class="spinwho" id="spinWho"></div>
           <div class="muted" id="spinNote" style="font-size:14px"></div>
+          <div id="lastResult" class="lastres" hidden></div>
         </div>
         <div id="result" class="result" hidden></div>
         <form id="lockForm" class="lock" autocomplete="off">
@@ -582,7 +585,7 @@ const MASTER_HASH = 'bb87c3488d773f514cdb6de415b3d732cc83fb77bd58dafdab3eda6c04c
 const MAX_STRIKES = 2, SPIN_S = 5.5, COOLDOWN = 2;
 // Results decided before the shared database existed.
 const HISTORY = {1: 'Attend M1 SAS'};
-const W = {pw: null, removed: new Set(), rot: 0, spinning: false, week: null, saved: null, spins: {}, loaded: false};
+const W = {pw: null, removed: new Set(), rot: 0, spinning: false, week: null, saved: null, spins: {}, loaded: false, state: 'none'};
 
 async function loadSpins(){
   const r = await fetch(`${FS}/spins?pageSize=300`, {cache: 'no-store'});
@@ -677,7 +680,8 @@ function setRot(deg, secs){
 function renderWheel(){
   drawWheel();
   const saved = W.saved, spinning = W.spinning, done = saved && !spinning;
-  const canEdit = !!W.pw && !saved && !spinning && W.week != null && W.loaded;
+  const ready = W.state === 'ready';
+  const canEdit = !!W.pw && !saved && !spinning && W.week != null && W.loaded && ready;
   const bl = blockedFor(W.week);
   $('plist').innerHTML = PUNISHMENTS.map((p, i) => {
     const until = bl.get(i);
@@ -689,8 +693,8 @@ function renderWheel(){
   $('strikeHint').textContent = saved ? `Struck: ${saved.removed.length ? saved.removed.map(i => PUNISHMENTS[i]).join(', ') : 'none'}`
     : canEdit ? `Tap to strike up to ${MAX_STRIKES} · ${W.removed.size} of ${MAX_STRIKES} struck · ${activeIdx().length} on the wheel`
     : `${activeIdx().length} on the wheel${bl.size ? ` · ${bl.size} sitting out` : ''}`;
-  $('lockForm').hidden = !!W.pw || !!saved;
-  $('spinBtn').hidden = !W.pw || !!done;
+  $('lockForm').hidden = !!W.pw || !!saved || !ready;
+  $('spinBtn').hidden = !W.pw || !!done || !ready;
   $('spinBtn').disabled = spinning || W.week == null || !W.loaded;
   $('spinBtn').textContent = spinning ? 'Spinning…' : W.removed.size < MAX_STRIKES ? `Spin with ${activeIdx().length}` : 'Spin';
   $('lockBtn').hidden = !W.pw || spinning;
@@ -730,25 +734,50 @@ async function refreshSpins(animate){
   try { await loadSpins(); if (!W.spinning) wheelError(''); }
   catch (err){ wheelError(`Couldn't reach the spin database (${err.message}). Results may be out of date; retrying.`); }
   syncWheel(animate);
-  if (S.log) loadLog(S.logFinal).catch(() => {});
+  if (S.log){ renderWheelInfo(); loadLog(S.logFinal).catch(() => {}); }
+}
+function wheelTarget(){
+  const rows = S.log ? S.log.rows : [];
+  for (const r of rows) if (resultFor(r.w) < 0) return {week: r.w, row: r, state: 'ready'};   // finished, still owes a spin
+  if (S.currentWeek == null) return {week: null, state: 'none'};
+  return S.curFinal ? {week: S.currentWeek + 1, state: 'upcoming'} : {week: S.currentWeek, state: 'live'};
 }
 function renderWheelInfo(){
-  const rows = S.log ? S.log.rows : [], last = rows[rows.length - 1];
-  if ((last ? last.w : null) !== W.week && !W.spinning) loadWeekSpin(last ? last.w : null);
-  const ld = S.leader, upcoming = ld && !S.curFinal ? ` Week ${S.currentWeek} is still being played: ${ld.team} is ${pctText(ld, false)} to spin next${ld.noLineup ? ' (no lineup set yet)' : ''}.` : '';
-  if (!last){
+  if (!W.loaded) return;                       // wait for the database before picking a week
+  const t = wheelTarget();
+  W.state = t.state;
+  if (t.week !== W.week && !W.spinning) loadWeekSpin(t.week);
+  const ld = S.leader;
+  if (t.state === 'ready'){
+    const r = S.rosters[t.row.rid] || {};
+    $('spinFor').textContent = `Week ${t.row.w} loser spins`;
+    $('spinWho').textContent = r.team || '';
+    $('spinNote').textContent = `@${r.manager} · ${fmt(t.row.pts)} pts, last by ${fmt(t.row.margin)}.`;
+  } else if (t.state === 'live'){
+    $('spinFor').textContent = `Week ${t.week} · still being played`;
+    $('spinWho').textContent = ld ? ld.team : 'Nobody is last yet';
+    $('spinNote').textContent = ld
+      ? `@${ld.manager} is last right now with ${fmt(ld.points)} pts · ${pctText(ld, false)} to end up spinning${ld.noLineup ? ' (no lineup set yet)' : ''}. The wheel unlocks when the week goes final.`
+      : 'The wheel unlocks when the week goes final.';
+  } else if (t.state === 'upcoming'){
+    $('spinFor').textContent = `Week ${t.week} · not started`;
+    $('spinWho').textContent = 'Everyone is safe';
+    $('spinNote').textContent = 'Every finished week has been spun. The wheel unlocks when Week ' + t.week + ' goes final.';
+  } else {
     $('spinFor').textContent = 'No finished week yet';
     $('spinWho').textContent = 'Nobody spins yet';
-    $('spinNote').textContent = upcoming.trim();
-    return;
+    $('spinNote').textContent = '';
   }
-  const r = S.rosters[last.rid] || {};
-  $('spinFor').textContent = `Week ${last.w} loser spins`;
-  $('spinWho').textContent = r.team || '';
-  $('spinNote').textContent = `@${r.manager} · ${fmt(last.pts)} pts, last by ${fmt(last.margin)}.${upcoming}`;
+  // the most recent decided punishment
+  const rows = S.log ? S.log.rows : [];
+  let prev = null;
+  for (const r of rows) if (r.w !== W.week && resultFor(r.w) >= 0) prev = r;
+  const box = $('lastResult');
+  box.hidden = !prev;
+  if (prev) box.innerHTML = `Week ${prev.w}: <b>${esc(PUNISHMENTS[resultFor(prev.w)])}</b> · ${esc(S.rosters[prev.rid]?.team || '')}${resultFor(prev.w) >= 0 ? ` · sits out until Week ${prev.w + COOLDOWN + 1}` : ''}`;
 }
 async function spinWheel(){
-  if (!W.pw || W.spinning || W.saved || W.week == null || !W.loaded) return;
+  if (!W.pw || W.spinning || W.saved || W.week == null || !W.loaded || W.state !== 'ready') return;
   const idx = activeIdx(), k = secureInt(idx.length), removed = [...W.removed], week = W.week;
   W.spinning = true; wheelError(''); renderWheel();
   try { await writeSpin(week, W.pw, idx[k], removed); }
