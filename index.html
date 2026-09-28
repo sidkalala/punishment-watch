@@ -348,6 +348,7 @@ async function loadGames(){
   if (w < S.currentWeek) list.forEach(g => { g.state = 'post'; g.f = 0; g.label = 'Final'; });
   list.sort((a, b) => a.when - b.when);
   S.gameList = list; S.games = {};
+  if (S.week === S.currentWeek) S.curGames = list;
   list.forEach((g, i) => { g.id = i; S.games[g.home.abbr] = g; S.games[g.away.abbr] = g; });
 }
 
@@ -737,10 +738,12 @@ async function refreshSpins(animate){
   if (S.log){ renderWheelInfo(); loadLog(S.logFinal).catch(() => {}); }
 }
 function wheelTarget(){
-  const rows = S.log ? S.log.rows : [];
-  for (const r of rows) if (resultFor(r.w) < 0) return {week: r.w, row: r, state: 'ready'};   // finished, still owes a spin
   if (S.currentWeek == null) return {week: null, state: 'none'};
-  return S.curFinal ? {week: S.currentWeek + 1, state: 'upcoming'} : {week: S.currentWeek, state: 'live'};
+  const start = S.league?.settings?.start_week || 1;
+  const kickedOff = !S.curGames || S.curGames.some(g => g.state !== 'pre');  // first game of this week has started
+  const week = kickedOff ? S.currentWeek : Math.max(start, S.currentWeek - 1);
+  const row = (S.log ? S.log.rows : []).find(r => r.w === week) || null;     // set once the week is final
+  return {week, row, state: 'ready', live: !row};
 }
 function renderWheelInfo(){
   if (!W.loaded) return;                       // wait for the database before picking a week
@@ -748,21 +751,17 @@ function renderWheelInfo(){
   W.state = t.state;
   if (t.week !== W.week && !W.spinning) loadWeekSpin(t.week);
   const ld = S.leader;
-  if (t.state === 'ready'){
+  if (t.row){
     const r = S.rosters[t.row.rid] || {};
     $('spinFor').textContent = `Week ${t.row.w} loser spins`;
     $('spinWho').textContent = r.team || '';
-    $('spinNote').textContent = `@${r.manager} · ${fmt(t.row.pts)} pts, last by ${fmt(t.row.margin)}.`;
-  } else if (t.state === 'live'){
-    $('spinFor').textContent = `Week ${t.week} · still being played`;
+    $('spinNote').textContent = `@${r.manager} · ${fmt(t.row.pts)} pts, last by ${fmt(t.row.margin)}. Final.`;
+  } else if (t.week != null){
+    $('spinFor').textContent = `Week ${t.week} loser spins`;
     $('spinWho').textContent = ld ? ld.team : 'Nobody is last yet';
     $('spinNote').textContent = ld
-      ? `@${ld.manager} is last right now with ${fmt(ld.points)} pts · ${pctText(ld, false)} to end up spinning${ld.noLineup ? ' (no lineup set yet)' : ''}. The wheel unlocks when the week goes final.`
-      : 'The wheel unlocks when the week goes final.';
-  } else if (t.state === 'upcoming'){
-    $('spinFor').textContent = `Week ${t.week} · not started`;
-    $('spinWho').textContent = 'Everyone is safe';
-    $('spinNote').textContent = 'Every finished week has been spun. The wheel unlocks when Week ' + t.week + ' goes final.';
+      ? `@${ld.manager} is last right now with ${fmt(ld.points)} pts · ${pctText(ld, false)} to stay there${ld.noLineup ? ' (no lineup set yet)' : ''}. Week ${t.week} isn't final, so this can still change — spin whenever you want.`
+      : `Week ${t.week} isn't final yet. Spin whenever you want.`;
   } else {
     $('spinFor').textContent = 'No finished week yet';
     $('spinWho').textContent = 'Nobody spins yet';
